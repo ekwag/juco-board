@@ -66,7 +66,7 @@ input[type="search"]{min-width:180px;flex:1 1 180px}
 .tchip.PASS[aria-pressed="true"]{background:var(--fall)}
 .tchip.HOT[aria-pressed="true"]{background:var(--warn)}
 .tchip.CAMP[aria-pressed="true"]{background:var(--lock)}
-.tchip.ALL[aria-pressed="true"]{background:var(--ink-2)}
+.tchip.ALL[aria-pressed="true"]{background:var(--ink-2)}.tchip.NONE[aria-pressed="true"]{background:var(--ink-2)}
 .savebar{display:none;gap:10px;align-items:center;margin-top:10px;padding:9px 13px;background:var(--warn-soft);border:1px solid var(--warn);border-radius:3px;font-size:13.5px}
 .savebar button{appearance:none;border:0;background:var(--brand);color:var(--surface);font:inherit;font-weight:700;font-size:13px;padding:8px 16px;border-radius:3px;cursor:pointer}
 .savebar button:disabled{opacity:.5;cursor:default}
@@ -397,7 +397,12 @@ function baseFilter(r) {
 function filtered() {
   var out = rows().filter(function (r) {
     if (!baseFilter(r)) return false;
-    if (VSEL.length && !scoped(pkey(r)).some(function (x) { return VSEL.indexOf(x.verdict) > -1; })) return false;
+    if (VSEL.length) {
+      var t = scoped(pkey(r));
+      var ok = t.some(function (x) { return VSEL.indexOf(x.verdict) > -1; });
+      if (!ok && !t.length && VSEL.indexOf("NONE") > -1) ok = true;
+      if (!ok) return false;
+    }
     return true;
   });
   var dir = SORTD === "asc" ? 1 : -1;
@@ -424,19 +429,21 @@ function takesCell(k) {
   }).join("") + "</div></td>";
 }
 function renderTally() {
-  var el = $("#tally"), counts = {}, total = 0;
+  var el = $("#tally"), counts = {}, total = 0, none = 0;
   VERDICTS.forEach(function (v) { counts[v[0]] = 0; });
   rows().forEach(function (r) {
     if (!baseFilter(r)) return;
-    var seen = {};
-    scoped(pkey(r)).forEach(function (x) {
+    var seen = {}, t = scoped(pkey(r));
+    t.forEach(function (x) {
       if (counts[x.verdict] !== undefined && !seen[x.verdict]) { seen[x.verdict] = 1; counts[x.verdict]++; }
     });
-    if (Object.keys(seen).length) total++;
+    if (Object.keys(seen).length) total++; else none++;
   });
-  if (!total) { el.innerHTML = ""; return; }
+  if (!total && !none) { el.innerHTML = ""; return; }
   el.innerHTML = '<span class="lbl">' + ($("#seen").value === "mine" ? "My takes" : "Staff takes") + "</span>"
-    + '<button class="tchip ALL" data-v="" aria-pressed="' + (VSEL.length === 0) + '">All<b>' + total + "</b></button>"
+    + '<button class="tchip ALL" data-v="" aria-pressed="' + (VSEL.length === 0) + '">All<b>' + (total + none) + "</b></button>"
+    + (none ? '<button class="tchip NONE" data-v="NONE" aria-pressed="' + (VSEL.indexOf("NONE") > -1)
+        + '">No verdict<b>' + none + "</b></button>" : "")
     + VERDICTS.filter(function (v) { return counts[v[0]]; }).map(function (v) {
         return '<button class="tchip ' + v[0] + '" data-v="' + v[0] + '" aria-pressed="' + (VSEL.indexOf(v[0]) > -1)
           + '">' + esc(v[1]) + "<b>" + counts[v[0]] + "</b></button>";
@@ -623,7 +630,6 @@ function needName() {
      `if (GH_MODE) { startGithubSignIn(); return false; }`. */
   var el = $("#whoIn");
   el.closest(".who-chip").classList.add("need");
-  el.focus();
   return false;
 }
 /* ---------- GitHub sign-in (GH_MODE only) ----------
@@ -669,7 +675,7 @@ function renderAuthUI() {
     : '<button id="ghSignIn" type="button">Sign in with GitHub</button>';
 }
 function stage(k, patch) {
-  if (!WHO) { needName(); render(); return; }
+  if (!WHO) { needName(); return; }
   NEEDNAME = false;
   var cur = PENDING[k] || (REVIEWS[k] || []).filter(function (x) { return x.who === WHO; })[0] || {};
   var next = { who: WHO, verdict: patch.verdict !== undefined ? patch.verdict : cur.verdict,
@@ -1003,8 +1009,9 @@ function vLabel() { return VSEL.length ? "Verdict (" + VSEL.length + ")" : "Verd
 function renderVPop() {
   var pop = $("#vPop"); if (!pop) return;
   $("#vBtn").textContent = vLabel();
+  var opts = [["NONE", "No verdict yet"]].concat(VERDICTS);
   pop.innerHTML = '<div class="colpop-hd"><span>Filter by verdict</span><b>' + (VSEL.length || "Any") + "</b></div>"
-    + '<div class="colpop-grid">' + VERDICTS.map(function (v) {
+    + '<div class="colpop-grid">' + opts.map(function (v) {
         var on = VSEL.indexOf(v[0]) > -1;
         return '<label><input type="checkbox" value="' + v[0] + '"' + (on ? " checked" : "")
           + "> " + esc(v[1]) + "</label>";
@@ -1050,7 +1057,25 @@ var WHO_T = null;
 $("#whoIn").addEventListener("input", function (e) {
   WHO = e.target.value.trim();
   LS.set("rcc.who", WHO);
-  if (WHO) { e.target.closest(".who-chip").classList.remove("need"); NEEDNAME = false; }
+  if (WHO) {
+    e.target.closest(".who-chip").classList.remove("need");
+    if (NEEDNAME) {
+      /* A note/where/when/grades may already be sitting in the open panel --
+         stage() silently refused to save any of it while WHO was empty.
+         Flush it now that we have a name, so nothing typed gets lost. */
+      NEEDNAME = false;
+      var panel = document.querySelector("tr.detail");
+      if (panel) {
+        var n = panel.querySelector("#note"), w = panel.querySelector("#where"),
+            s = panel.querySelector("#seenon"), g = panel.querySelector("#grades");
+        if (n || w || s || g) {
+          var kk = panel.previousElementSibling.dataset.id;
+          stage(kk, { note: n ? n.value : undefined, where: w ? w.value : undefined,
+                      seen_on: s ? s.value : undefined, grades: g ? g.value : undefined });
+        }
+      }
+    }
+  }
   syncSaveBar();
   clearTimeout(WHO_T);
   WHO_T = setTimeout(function () { if (!document.querySelector(".verdicts")) render(); }, 900);
