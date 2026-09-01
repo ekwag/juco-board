@@ -205,17 +205,11 @@ footer{margin-top:34px;padding-top:20px;border-top:1px solid var(--line);font-si
       <option value="none">Nobody has looked</option>
       <option value="notmine">I haven&rsquo;t looked</option>
     </select>
-    <select id="verdict" aria-label="Verdict">
-      <option value="">Any verdict</option>
-      <option value="PURSUE">Pursue</option>
-      <option value="HOT">Hot</option>
-      <option value="FOLLOW">Follow</option>
-      <option value="CAMP">Camp Invite</option>
-      <option value="WATCH">Watch</option>
-      <option value="PASS">Pass</option>
-    </select>
-    <div class="who-chip" id="ghAuth"><button id="ghSignIn" type="button">Sign in with GitHub</button></div>
-    <input id="whoIn" hidden>
+    <div class="colpick vpick">
+      <button class="who-chip" id="vBtn" aria-haspopup="true" aria-expanded="false">Verdict</button>
+      <div class="colpop" id="vPop" hidden></div>
+    </div>
+    <label class="who-chip" for="whoIn">You <input id="whoIn" placeholder="your name" autocomplete="name" spellcheck="false"></label>
     <div class="colpick">
       <button class="who-chip" id="colsBtn" aria-haspopup="true" aria-expanded="false">Columns</button>
       <div class="colpop" id="colPop" hidden></div>
@@ -241,7 +235,7 @@ footer{margin-top:34px;padding-top:20px;border-top:1px solid var(--line);font-si
    page republishes itself when someone saves. See docs in the reply. */
 var BOARD = JSON.parse(document.getElementById("d-board").textContent);
 var REVIEWS = JSON.parse(document.getElementById("d-reviews").textContent || "{}");
-var PENDING = {}, WHO = "", MODE = "h", SORTK = "score", SORTD = "desc", OPEN = null;
+var PENDING = {}, WHO = "", MODE = "h", SORTK = "score", SORTD = "desc", OPEN = null, VSEL = [];
 var ART = null, WRITABLE = true, BUSY = false, NOTE_T = null, NEEDNAME = false;
 /* Two hosting modes share this exact file. On a Claude artifact (Erik's own
    testing/iteration copy) BACKEND_MODE is never defined, so GH_MODE is
@@ -401,10 +395,9 @@ function baseFilter(r) {
   return true;
 }
 function filtered() {
-  var vd = $("#verdict").value;
   var out = rows().filter(function (r) {
     if (!baseFilter(r)) return false;
-    if (vd && !scoped(pkey(r)).some(function (x) { return x.verdict === vd; })) return false;
+    if (VSEL.length && !scoped(pkey(r)).some(function (x) { return VSEL.indexOf(x.verdict) > -1; })) return false;
     return true;
   });
   var dir = SORTD === "asc" ? 1 : -1;
@@ -442,11 +435,10 @@ function renderTally() {
     if (Object.keys(seen).length) total++;
   });
   if (!total) { el.innerHTML = ""; return; }
-  var cur = $("#verdict").value;
   el.innerHTML = '<span class="lbl">' + ($("#seen").value === "mine" ? "My takes" : "Staff takes") + "</span>"
-    + '<button class="tchip ALL" data-v="" aria-pressed="' + (cur === "") + '">All<b>' + total + "</b></button>"
+    + '<button class="tchip ALL" data-v="" aria-pressed="' + (VSEL.length === 0) + '">All<b>' + total + "</b></button>"
     + VERDICTS.filter(function (v) { return counts[v[0]]; }).map(function (v) {
-        return '<button class="tchip ' + v[0] + '" data-v="' + v[0] + '" aria-pressed="' + (cur === v[0])
+        return '<button class="tchip ' + v[0] + '" data-v="' + v[0] + '" aria-pressed="' + (VSEL.indexOf(v[0]) > -1)
           + '">' + esc(v[1]) + "<b>" + counts[v[0]] + "</b></button>";
       }).join("");
 }
@@ -570,12 +562,10 @@ function detailRow(r, k, span) {
   var mine = PENDING[k] || (REVIEWS[k] || []).filter(function (x) { return x.who === WHO; })[0] || {};
   var others = takes(k).filter(function (x) { return x.who !== WHO; });
   var rev = "";
-  if (WRITABLE) {
+  if (WRITABLE || GH_MODE) {
     rev = '<div class="rev"><h4>Your take' + (WHO ? " · " + esc(WHO) : "") + "</h4>"
-      + (NEEDNAME && !WHO ? '<p class="needname">' + (GH_MODE
-          ? "Sign in with GitHub first — the staff needs to know whose take this is."
-          : "Put your name in the box up top first — the staff needs to know whose take this is.")
-        + "</p>" : "")
+      + (NEEDNAME && !WHO ? '<p class="needname">Put your name in the box up top first '
+          + "— the staff needs to know whose take this is.</p>" : "")
       + '<div class="verdicts">' + VERDICTS.map(function (v) {
           return '<button class="' + v[0] + '" data-v="' + v[0] + '" aria-pressed="'
             + (mine.verdict === v[0]) + '">' + esc(v[1]) + "</button>"; }).join("") + "</div>"
@@ -625,7 +615,12 @@ function detailRow(r, k, span) {
    sandboxed frame where browser dialogs are ignored, silently. */
 function needName() {
   NEEDNAME = true;
-  if (GH_MODE) { startGithubSignIn(); return false; }
+  /* GitHub sign-in is temporarily off site-side (the OAuth redirect back
+     from the Worker isn't landing with its hash intact -- see NEXT.md).
+     Everyone falls back to typing a name for a local-only note for now.
+     startGithubSignIn/handleGithubReturn below are untouched and ready to
+     wire back in -- once fixed, restore the branch that used to sit here:
+     `if (GH_MODE) { startGithubSignIn(); return false; }`. */
   var el = $("#whoIn");
   el.closest(".who-chip").classList.add("need");
   el.focus();
@@ -733,7 +728,7 @@ function saveToBoardArtifact() {
   });
   SS.set("rcc.ui", { mode: MODE, q: $("#q").value, conf: $("#conf").value,
                      pos: $("#pos").value, seen: $("#seen").value,
-                     verdict: $("#verdict").value, y: window.scrollY });
+                     verdict: VSEL.slice(), y: window.scrollY });
   SS.set("rcc.justSaved", pendingCount());
   ART.publish(buildDoc(next)).then(function () {
     PENDING = {}; LS.set("rcc.pending", {});
@@ -782,7 +777,7 @@ function saveToBoardGithub() {
   if (hereBtn) { hereBtn.disabled = true; hereBtn.textContent = "Saving…"; }
   SS.set("rcc.ui", { mode: MODE, q: $("#q").value, conf: $("#conf").value,
                      pos: $("#pos").value, seen: $("#seen").value,
-                     verdict: $("#verdict").value, y: window.scrollY });
+                     verdict: VSEL.slice(), y: window.scrollY });
   var tasks = keys.map(function (k) {
     var parts = k.split("|");
     return fetch(WORKER_URL + "/save", {
@@ -954,11 +949,13 @@ $("#tbody").addEventListener("input", function (e) {
     syncSaveBar();
   }, 400);
 });
-["#q", "#conf", "#pos", "#seen", "#verdict"].forEach(function (s) {
+["#q", "#conf", "#pos", "#seen"].forEach(function (s) {
   $(s).addEventListener("input", function () { OPEN = null; render(); }); });
 $("#tally").addEventListener("click", function (e) {
   var b = e.target.closest("button[data-v]"); if (!b) return;
-  $("#verdict").value = b.dataset.v; OPEN = null; render();
+  if (!b.dataset.v) { VSEL = []; }
+  else { var i = VSEL.indexOf(b.dataset.v); if (i > -1) VSEL.splice(i, 1); else VSEL.push(b.dataset.v); }
+  renderVPop(); OPEN = null; render();
 });
 $("#tabH").addEventListener("click", function () { setMode("h"); });
 $("#tabP").addEventListener("click", function () { setMode("p"); });
@@ -1001,11 +998,49 @@ $("#colPop").addEventListener("change", function (e) {
   renderColPop();
   render();
 });
+/* ---------- verdict filter picker ---------- */
+function vLabel() { return VSEL.length ? "Verdict (" + VSEL.length + ")" : "Verdict"; }
+function renderVPop() {
+  var pop = $("#vPop"); if (!pop) return;
+  $("#vBtn").textContent = vLabel();
+  pop.innerHTML = '<div class="colpop-hd"><span>Filter by verdict</span><b>' + (VSEL.length || "Any") + "</b></div>"
+    + '<div class="colpop-grid">' + VERDICTS.map(function (v) {
+        var on = VSEL.indexOf(v[0]) > -1;
+        return '<label><input type="checkbox" value="' + v[0] + '"' + (on ? " checked" : "")
+          + "> " + esc(v[1]) + "</label>";
+      }).join("") + "</div>";
+}
+function openVPop() {
+  renderVPop();
+  $("#vPop").hidden = false;
+  $("#vBtn").setAttribute("aria-expanded", "true");
+}
+function closeVPop() {
+  $("#vPop").hidden = true;
+  $("#vBtn").setAttribute("aria-expanded", "false");
+}
+$("#vBtn").addEventListener("click", function (e) {
+  e.stopPropagation();
+  if ($("#vPop").hidden) openVPop(); else closeVPop();
+});
+$("#vPop").addEventListener("click", function (e) { e.stopPropagation(); });
+$("#vPop").addEventListener("change", function (e) {
+  var cb = e.target.closest("input[type=checkbox]"); if (!cb) return;
+  var v = cb.value, i = VSEL.indexOf(v);
+  if (cb.checked) { if (i === -1) VSEL.push(v); }
+  else if (i > -1) { VSEL.splice(i, 1); }
+  renderVPop();
+  render();
+});
 document.addEventListener("click", function (e) {
   if (!$("#colPop").hidden && !e.target.closest(".colpick")) closeColPop();
+  if (!$("#vPop").hidden && !e.target.closest(".vpick")) closeVPop();
 });
 document.addEventListener("keydown", function (e) {
-  if (e.key === "Escape" && !$("#colPop").hidden) closeColPop();
+  if (e.key === "Escape") {
+    if (!$("#colPop").hidden) closeColPop();
+    if (!$("#vPop").hidden) closeVPop();
+  }
 });
 /* Never re-render the table straight from this field. Blur fires while a
    finger is already travelling toward a verdict button; rebuilding the rows
@@ -1052,7 +1087,7 @@ $("#cr").textContent = nRev;
 var ui = SS.get("rcc.ui", null);
 if (ui) { MODE = ui.mode || "h"; $("#q").value = ui.q || ""; $("#conf").value = ui.conf || "";
   $("#pos").value = ui.pos || ""; $("#seen").value = ui.seen || "";
-  $("#verdict").value = ui.verdict || "";
+  VSEL = ui.verdict || []; renderVPop();
   $("#tabH").setAttribute("aria-pressed", MODE === "h");
   $("#tabP").setAttribute("aria-pressed", MODE === "p");
   sessionStorage.removeItem("rcc.ui"); }
