@@ -1,0 +1,23 @@
+# Only needed if deploying with the wrangler CLI (npm install -g wrangler;
+# wrangler deploy). If you'd rather paste the code into the Cloudflare
+# dashboard's Worker editor, you don't need this file -- set the same
+# variables and secrets there instead. See DEPLOY.md.
+
+name = "juco-board-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+GITHUB_CLIENT_ID = "REPLACE_ME"
+REPO_OWNER = "REPLACE_ME"
+REPO_NAME = "REPLACE_ME"
+REVIEWS_PATH = "reviews.json"
+PAGE_URL = "https://REPLACE_ME.github.io/REPLACE_ME/"
+PAGE_URL_ORIGIN = "https://REPLACE_ME.github.io"
+ALLOWED_USERS = "REPLACE_ME_comma_separated_github_usernames"
+# REPO_BRANCH = "main"   # uncomment only if it's not your repo's default branch
+
+# Secrets are NOT set here -- run these once, after wrangler deploy:
+#   wrangler secret put GITHUB_CLIENT_SECRET
+#   wrangler secret put GITHUB_WRITE_TOKEN
+#   wrangler secret put SESSION_SECRET
