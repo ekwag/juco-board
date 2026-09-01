@@ -199,6 +199,7 @@ footer{margin-top:34px;padding-top:20px;border-top:1px solid var(--line);font-si
     <input type="search" id="q" placeholder="Search name or school&hellip;" aria-label="Search">
     <select id="conf" aria-label="Conference"><option value="">All conferences</option></select>
     <select id="pos" aria-label="Position"><option value="">All positions</option></select>
+    <select id="state" aria-label="School state"><option value="">All states</option></select>
     <select id="seen" aria-label="Whose notes">
       <option value="">Anyone&rsquo;s notes</option>
       <option value="mine">Only mine</option>
@@ -384,10 +385,11 @@ function scoped(k) {
 }
 function baseFilter(r) {
   var q = $("#q").value.trim().toLowerCase(), c = $("#conf").value, p = $("#pos").value,
-      v = $("#seen").value;
+      st = $("#state").value, v = $("#seen").value;
   if (q && ((r.name + " " + (r.team || "")).toLowerCase().indexOf(q) < 0)) return false;
   if (c && r.conf !== c) return false;
   if (p && posGroup(r.pos) !== p) return false;
+  if (st && r.state !== st) return false;
   var t = takes(pkey(r));
   if (v === "none" && t.length) return false;
   if (v === "mine" && !t.some(function (x) { return x.who === WHO; })) return false;
@@ -733,7 +735,7 @@ function saveToBoardArtifact() {
     next[k].push(PENDING[k]);
   });
   SS.set("rcc.ui", { mode: MODE, q: $("#q").value, conf: $("#conf").value,
-                     pos: $("#pos").value, seen: $("#seen").value,
+                     pos: $("#pos").value, state: $("#state").value, seen: $("#seen").value,
                      verdict: VSEL.slice(), y: window.scrollY });
   SS.set("rcc.justSaved", pendingCount());
   ART.publish(buildDoc(next)).then(function () {
@@ -782,7 +784,7 @@ function saveToBoardGithub() {
   var hereBtn = document.querySelector("#saveHere");
   if (hereBtn) { hereBtn.disabled = true; hereBtn.textContent = "Saving…"; }
   SS.set("rcc.ui", { mode: MODE, q: $("#q").value, conf: $("#conf").value,
-                     pos: $("#pos").value, seen: $("#seen").value,
+                     pos: $("#pos").value, state: $("#state").value, seen: $("#seen").value,
                      verdict: VSEL.slice(), y: window.scrollY });
   var tasks = keys.map(function (k) {
     var parts = k.split("|");
@@ -955,7 +957,7 @@ $("#tbody").addEventListener("input", function (e) {
     syncSaveBar();
   }, 400);
 });
-["#q", "#conf", "#pos", "#seen"].forEach(function (s) {
+["#q", "#conf", "#pos", "#state", "#seen"].forEach(function (s) {
   $(s).addEventListener("input", function () { OPEN = null; render(); }); });
 $("#tally").addEventListener("click", function (e) {
   var b = e.target.closest("button[data-v]"); if (!b) return;
@@ -1103,6 +1105,7 @@ WHO = LS.get("rcc.who", "") || "";
 PENDING = LS.get("rcc.pending", {}) || {};
 $("#whoIn").value = WHO;
 fill($("#conf"), "conf");
+fill($("#state"), "state");
 ["P", "C", "INF", "OF", "UTIL"].forEach(function (v) {
   var o = document.createElement("option"); o.value = o.textContent = v; $("#pos").appendChild(o); });
 $("#ch").textContent = BOARD.hitters.length;
@@ -1111,7 +1114,7 @@ var nRev = 0; Object.keys(REVIEWS).forEach(function (k) { nRev += REVIEWS[k].len
 $("#cr").textContent = nRev;
 var ui = SS.get("rcc.ui", null);
 if (ui) { MODE = ui.mode || "h"; $("#q").value = ui.q || ""; $("#conf").value = ui.conf || "";
-  $("#pos").value = ui.pos || ""; $("#seen").value = ui.seen || "";
+  $("#pos").value = ui.pos || ""; $("#state").value = ui.state || ""; $("#seen").value = ui.seen || "";
   VSEL = ui.verdict || []; renderVPop();
   $("#tabH").setAttribute("aria-pressed", MODE === "h");
   $("#tabP").setAttribute("aria-pressed", MODE === "p");
