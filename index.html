@@ -166,6 +166,12 @@ tr.detail td{background:var(--surface-3);padding:16px;font-size:13.5px}
 .said b{font-weight:700}
 .said em{font-style:normal;color:var(--muted);font-size:12px}
 .said q{color:var(--ink-2);display:block;margin-top:2px}
+.addp-form{display:flex;flex-direction:column;gap:10px}
+.addp-form label{display:flex;flex-direction:column;gap:3px;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.addp-form input,.addp-form select{font:inherit;font-size:13.5px;letter-spacing:0;text-transform:none;font-weight:400;padding:7px 10px;border:1px solid var(--line-strong);border-radius:3px;background:var(--surface);color:var(--ink);color-scheme:light dark}
+.addp-form .actions{margin-top:2px}
+.manualNote{margin-top:10px;font-size:12px;color:var(--muted)}
+.manualNote button{appearance:none;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);font:inherit;font-size:11.5px;padding:4px 9px;border-radius:3px;cursor:pointer;margin-left:6px}
 footer{margin-top:34px;padding-top:20px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted);max-width:74ch}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -214,6 +220,10 @@ footer{margin-top:34px;padding-top:20px;border-top:1px solid var(--line);font-si
     <div class="colpick">
       <button class="who-chip" id="colsBtn" aria-haspopup="true" aria-expanded="false">Columns</button>
       <div class="colpop" id="colPop" hidden></div>
+    </div>
+    <div class="colpick apick">
+      <button class="who-chip" id="addpBtn" aria-haspopup="true" aria-expanded="false">+ Add player</button>
+      <div class="colpop" id="addpPop" hidden></div>
     </div>
     <button class="who-chip" id="exportBtn">Export</button>
     <span class="count" id="count"></span>
@@ -318,6 +328,13 @@ var SS = {
   get: function (k, d) { try { return JSON.parse(sessionStorage.getItem(k)) || d; } catch (e) { return d; } },
   set: function (k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 };
+/* Players added by hand (see the "+ Add player" popover) never touch
+   Postgres -- they live only in this browser's localStorage and get
+   folded into BOARD right here, before anything renders. Same "local
+   until there's a real backend" deal as free-text name entry and notes:
+   visible only to whoever added them, gone if they clear site data. */
+(LS.get("rcc.manual.h", []) || []).forEach(function (r) { BOARD.hitters.push(r); });
+(LS.get("rcc.manual.p", []) || []).forEach(function (r) { BOARD.pitchers.push(r); });
 
 /* Every stat board_export.py exports, in the order the column picker lists
    them. Not every row has every field (a source that never published SF or
@@ -336,6 +353,7 @@ var STAT_COLS = {
 /* These columns always show, in this order, regardless of the picker. */
 var FIXED_PRE = [["rank", "", "rank"], ["who", "Player", ""]];
 var FIXED_POST = [["chips", "Why", ""], ["takes", "Staff", ""], ["score", "Score", "n"]];
+var CHIP_SHORT = { woodbat: "Wood bat" };
 var MAXCOLS = 7;
 /* The board's original fixed column set, preserved as the default so a
    first-time viewer (or anyone who never opens the picker) sees exactly
@@ -470,7 +488,9 @@ function render() {
           + esc(r.team || "") + " · " + esc(r.pos || "—")
           + (r.conf ? " · " + esc(r.conf) : "") + "</span></td>";
         if (key === "chips") return '<td><div class="chips">' + (r.chips || []).map(function (c2) {
-          return '<span class="chip ' + c2[0] + '">' + esc(c2[1]) + "</span>"; }).join("") + "</div></td>";
+          var short = CHIP_SHORT[c2[0]];
+          return '<span class="chip ' + c2[0] + '"' + (short ? ' title="' + esc(c2[1]) + '"' : "") + ">"
+            + esc(short || c2[1]) + "</span>"; }).join("") + "</div></td>";
         if (key === "takes") return takesCell(k);
         if (key === "score") return '<td class="n"><span class="score">' + r.score
           + '</span><span class="bar" style="width:' + Math.max(6, r.score) + '%"></span></td>';
@@ -614,9 +634,13 @@ function detailRow(r, k, span) {
             return gg.label + " " + gg.grade; }).join(" · ")) + "</span>" : "")
         + "</div>"; }).join("") + "</div>";
   }
+  var manualNote = r.manual
+    ? '<p class="manualNote">Added manually -- only visible in this browser.'
+      + ' <button id="rmManual" type="button">Remove</button></p>'
+    : "";
   return '<tr class="detail"><td colspan="' + span + '"><div class="dl">'
     + d.map(function (p) { return "<div><span>" + esc(p[0]) + "</span><b>" + esc(p[1]) + "</b></div>"; }).join("")
-    + "</div>" + trendBlock(r) + rev + "</td></tr>";
+    + "</div>" + manualNote + trendBlock(r) + rev + "</td></tr>";
 }
 
 /* ---------- reviews ---------- */
@@ -938,6 +962,9 @@ $("#tbody").addEventListener("click", function (e) {
             stage(kk3, { context: cur3.context === cb.dataset.c ? "" : cb.dataset.c });
             render(); return; }
   if (e.target.id === "saveHere") { saveToBoard(); return; }
+  if (e.target.id === "rmManual") {
+    removeManual(e.target.closest("tr.detail").previousElementSibling.dataset.id); return;
+  }
   if (e.target.closest(".detail")) return;
   var tr = e.target.closest("tr[data-id]"); if (!tr) return;
   OPEN = OPEN === tr.dataset.id ? null : tr.dataset.id; render();
@@ -1041,14 +1068,76 @@ $("#vPop").addEventListener("change", function (e) {
   renderVPop();
   render();
 });
+function renderAddPop() {
+  var pop = $("#addpPop"); if (!pop) return;
+  pop.innerHTML = '<div class="colpop-hd"><span>Add a player</span></div>'
+    + '<div class="addp-form">'
+    + '<label>Name<input id="apName" placeholder="First Last"></label>'
+    + '<label>School<input id="apTeam" placeholder="School name"></label>'
+    + '<label>Position<input id="apPos" placeholder="e.g. RHP, 3B, OF"></label>'
+    + '<label>Type<select id="apMode"><option value="h">Hitter</option>'
+    + '<option value="p">Pitcher</option></select></label>'
+    + '<div class="actions"><button id="apSave" type="button">Add player</button>'
+    + '<span class="msg" id="apMsg"></span></div></div>';
+  $("#apMode").value = MODE;
+}
+function openAddPop() {
+  renderAddPop();
+  $("#addpPop").hidden = false;
+  $("#addpBtn").setAttribute("aria-expanded", "true");
+}
+function closeAddPop() {
+  $("#addpPop").hidden = true;
+  $("#addpBtn").setAttribute("aria-expanded", "false");
+}
+/* Manually-added players are plain rows in BOARD.hitters/.pitchers, keyed
+   by the same name+team pkey() everything else uses -- so takes/notes/
+   filtering/sorting all just work on them for free. The only thing that
+   makes them different is the .manual flag (drives the chip + the Remove
+   button) and that they're mirrored into localStorage instead of coming
+   from drop/board2027_page.json. */
+function removeManual(k) {
+  var arr = rows();
+  for (var i = arr.length - 1; i >= 0; i--) {
+    if (arr[i].manual && pkey(arr[i]) === k) arr.splice(i, 1);
+  }
+  var lkey = "rcc.manual." + MODE;
+  LS.set(lkey, (LS.get(lkey, []) || []).filter(function (r) { return pkey(r) !== k; }));
+  OPEN = null;
+  render();
+}
+$("#addpBtn").addEventListener("click", function (e) {
+  e.stopPropagation();
+  if ($("#addpPop").hidden) openAddPop(); else closeAddPop();
+});
+$("#addpPop").addEventListener("click", function (e) {
+  e.stopPropagation();
+  if (e.target.id !== "apSave") return;
+  var nm = $("#apName").value.trim(), team = $("#apTeam").value.trim(),
+      pos = $("#apPos").value.trim(), m = $("#apMode").value;
+  if (!nm || !team) { $("#apMsg").textContent = "Name and school are required."; return; }
+  var row = { name: nm, team: team, pos: pos, conf: null, state: "",
+              home: null, bats: null, throws: null, ht: null, wt: null, score: 0,
+              chips: [["manual", "Added manually"]], wood_bat: false, manual: true };
+  BOARD[m === "h" ? "hitters" : "pitchers"].push(row);
+  var lkey = "rcc.manual." + m, list = LS.get(lkey, []) || [];
+  list.push(row);
+  LS.set(lkey, list);
+  closeAddPop();
+  if (MODE !== m) setMode(m);
+  OPEN = m + "|" + nm + "|" + team;
+  render();
+});
 document.addEventListener("click", function (e) {
   if (!$("#colPop").hidden && !e.target.closest(".colpick")) closeColPop();
   if (!$("#vPop").hidden && !e.target.closest(".vpick")) closeVPop();
+  if (!$("#addpPop").hidden && !e.target.closest(".apick")) closeAddPop();
 });
 document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") {
     if (!$("#colPop").hidden) closeColPop();
     if (!$("#vPop").hidden) closeVPop();
+    if (!$("#addpPop").hidden) closeAddPop();
   }
 });
 /* Never re-render the table straight from this field. Blur fires while a
