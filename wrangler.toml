@@ -9,13 +9,16 @@ name = "juco-board"
 main = "_worker.js"
 compatibility_date = "2026-09-06"
 
-[assets]
-directory = "."
-binding = "ASSETS"
-# Route every request (including a plain page load) through _worker.js
-# first, rather than letting matching static files (index.html) bypass it.
-# See _worker.js's docstring for why.
-run_worker_first = true
+[[rules]]
+# Bundles index.html directly into this Worker as a plain string, imported
+# in _worker.js via `import PAGE_HTML from "./index.html"`. Deliberately
+# NOT using Workers' separate "Static Assets" ([assets]) feature -- its
+# docs say the internal router that feature adds does not forward
+# `ctx.access` through to the Worker script, which silently breaks
+# identity on every page load. See _worker.js's docstring for the full
+# explanation.
+type = "Text"
+globs = ["*.html"]
 
 [[d1_databases]]
 binding = "DB"

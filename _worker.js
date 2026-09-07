@@ -1,16 +1,27 @@
 /*
- * JUCO board API + static site -- one Cloudflare Worker (with static
- * assets) serves both.
+ * JUCO board API + static site -- one Cloudflare Worker serves both.
  *
  * This used to be split across a GitHub Pages site and a separate
  * "juco-board-api" Worker doing GitHub OAuth (see the old site/worker.js,
  * kept only for reference). It's now a single Worker: this same hostname
- * serves the board's HTML (a static asset -- see the `assets` block in
- * wrangler.toml) AND its API (/api/whoami, /api/reviews, /api/save,
- * /api/players). One hostname means Cloudflare Access can protect the
- * whole thing with a single toggle -- no separate login domain, no CORS,
- * and it works exactly the same on the free *.workers.dev URL as it will
- * on a custom domain later, if one gets added.
+ * serves the board's HTML AND its API (/api/whoami, /api/reviews,
+ * /api/save, /api/players). One hostname means Cloudflare Access can
+ * protect the whole thing with a single toggle -- no separate login
+ * domain, no CORS, and it works exactly the same on the free
+ * *.workers.dev URL as it will on a custom domain later, if one gets added.
+ *
+ * WHY THE PAGE IS IMPORTED RATHER THAN SERVED AS A "STATIC ASSET". Workers
+ * has a separate "Static Assets" feature (an `[assets]` block in
+ * wrangler.toml) that sounds like the obvious way to serve index.html --
+ * this project used it briefly and it turned out to have a real gap:
+ * Cloudflare's own docs say the internal router that feature adds does NOT
+ * forward `ctx.access` (see below) through to the Worker script, even
+ * though Access still gates the request. That silently broke identity for
+ * every page load, so this Worker doesn't use that feature at all. Instead,
+ * `index.html` is imported directly as a text module (the `[[rules]]`
+ * block in wrangler.toml) and bundled straight into this script -- there
+ * is no separate router in between, so `ctx.access` is populated
+ * correctly for every request, page loads included.
  *
  * WHO YOU ARE. This Worker is protected by Cloudflare Access (Workers &
  * Pages -> juco-board -> Access tab -> "Protect this Worker" -- see
@@ -26,15 +37,9 @@
  * board id so a second, unrelated board can share the same database
  * without its rows ever mixing with this one's -- see the
  * "reviews"/"manual_players" schema in site/DEPLOY.md.
- *
- * wrangler.toml sets `run_worker_first = true` under `[assets]`, which
- * means EVERY request -- including a plain page load of index.html --
- * comes through this script's fetch() first, not just /api/* calls. That's
- * deliberate: it lets the `ctx.access` check below run on every request as
- * a second, explicit guard, rather than relying only on the dashboard-level
- * Access toggle. Static files are still served by falling through to
- * `env.ASSETS.fetch(request)` at the bottom once that check passes.
  */
+
+import PAGE_HTML from "./index.html";
 
 function json(obj, status) {
   return new Response(JSON.stringify(obj), {
@@ -153,13 +158,13 @@ export default {
     if (url.pathname === "/api/players" && request.method === "GET") return handlePlayersGet(env, url);
     if (url.pathname === "/api/players" && request.method === "POST") return handlePlayersPost(request, env, ctx, url);
     if (url.pathname === "/api/players" && request.method === "DELETE") return handlePlayersDelete(request, env, ctx, url);
-    // Everything else is the static board page. Belt-and-suspenders check:
+    // Everything else is the board page itself. Belt-and-suspenders check:
     // the dashboard-level "Protect this Worker" toggle should already have
     // blocked an unauthenticated request before it got here, but this
     // makes the security boundary explicit in code too, rather than
     // resting entirely on a dashboard setting someone could accidentally
     // turn off.
     if (!(await identify(ctx))) return new Response("Access required", { status: 403 });
-    return env.ASSETS.fetch(request);
+    return new Response(PAGE_HTML, { headers: { "Content-Type": "text/html; charset=utf-8" } });
   },
 };
