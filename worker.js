@@ -1,4 +1,14 @@
 /*
+ * SUPERSEDED (2026-09-05) -- nothing deploys this file anymore. The board
+ * moved from GitHub Pages + this standalone Worker to Cloudflare Pages +
+ * site/_worker.js (D1 database + Cloudflare Access instead of a GitHub
+ * OAuth token exchange and commits to reviews.json). See site/DEPLOY.md
+ * for the new setup. This file is left here only for reference/history --
+ * safe to delete once the new setup is confirmed working. The standalone
+ * "juco-board-api" Worker this used to be deployed to can be deleted from
+ * the Cloudflare dashboard whenever convenient; nothing depends on it.
+ */
+/*
  * JUCO board write-proxy -- Cloudflare Worker.
  *
  * WHAT THIS IS FOR. The board itself is a static page on GitHub Pages --

@@ -1,23 +1,35 @@
-# Only needed if deploying with the wrangler CLI (npm install -g wrangler;
-# wrangler deploy). If you'd rather paste the code into the Cloudflare
-# dashboard's Worker editor, you don't need this file -- set the same
-# variables and secrets there instead. See DEPLOY.md.
+# Config for the "juco-board" Worker (Workers & Pages -> juco-board). This
+# name MUST match the Worker's name in the Cloudflare dashboard exactly, or
+# a Git-connected build will fail -- see site/DEPLOY.md.
+#
+# Nothing in this file is secret -- it's safe to commit and push like any
+# other file in this repo.
 
-name = "juco-board-api"
-main = "worker.js"
-compatibility_date = "2024-01-01"
+name = "juco-board"
+main = "_worker.js"
+compatibility_date = "2026-09-06"
+
+[assets]
+directory = "."
+binding = "ASSETS"
+# Route every request (including a plain page load) through _worker.js
+# first, rather than letting matching static files (index.html) bypass it.
+# See _worker.js's docstring for why.
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "juco-board"
+database_id = "38bbb299-92f5-4a73-8808-de0dbdd78143"
 
 [vars]
-GITHUB_CLIENT_ID = "REPLACE_ME"
-REPO_OWNER = "REPLACE_ME"
-REPO_NAME = "REPLACE_ME"
-REVIEWS_PATH = "reviews.json"
-PAGE_URL = "https://REPLACE_ME.github.io/REPLACE_ME/"
-PAGE_URL_ORIGIN = "https://REPLACE_ME.github.io"
-ALLOWED_USERS = "REPLACE_ME_comma_separated_github_usernames"
-# REPO_BRANCH = "main"   # uncomment only if it's not your repo's default branch
+# Only used as a fallback if a request to /api/* ever omits ?board=... --
+# board_app.txt always sends it, so this rarely matters. Change only if
+# this exact Worker ever gets reused for a second board sharing this same
+# D1 database (see "A second board sharing this database later" in
+# site/DEPLOY.md).
+BOARD_ID = "juco2027"
 
-# Secrets are NOT set here -- run these once, after wrangler deploy:
-#   wrangler secret put GITHUB_CLIENT_SECRET
-#   wrangler secret put GITHUB_WRITE_TOKEN
-#   wrangler secret put SESSION_SECRET
+# No Access-related variables needed here -- Cloudflare Access is turned on
+# for this whole Worker from its own "Access" tab in the dashboard, and
+# identity reaches _worker.js through `ctx.access`, not an env var.

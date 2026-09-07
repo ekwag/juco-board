@@ -1,4 +1,138 @@
-# Deploying the shared board (GitHub Pages + Cloudflare Worker)
+# Deploying the shared board (Cloudflare Worker + static assets + D1 + Access)
+
+**Read this section only.** Everything below the first `---` is kept for
+history but describes setups that no longer apply (an earlier "Cloudflare
+Pages" plan, and before that the original GitHub Pages + GitHub OAuth
+setup) -- Cloudflare has moved away from Pages as a distinct product, so
+this board runs as a single Cloudflare Worker with static-assets support
+instead. `site/worker.js` and the two `wrangler.*.toml.txt` files are old
+and unused; ignore them.
+
+**What you already have, as of today:** a Worker named `juco-board` exists
+in your Cloudflare account (Workers & Pages -> juco-board). It's currently
+empty/default -- the steps below connect it to your repo and turn it into
+the real board.
+
+## The big simplification
+
+Almost everything that used to need manual dashboard clicking now lives in
+`site/wrangler.toml`, which you already have and just push like any other
+file:
+
+- The D1 database binding (`DB`) is already in that file, pointing at your
+  `juco-board` database -- **no dashboard binding step needed at all.**
+- Cloudflare Access identity now reaches the Worker automatically via a
+  built-in `ctx.access` API once you flip one toggle in the dashboard --
+  **no separate Access application to create, no team domain or AUD tag to
+  find and paste anywhere.**
+
+So the only things left to actually do by hand are: connect the repo, flip
+the Access toggle, and push.
+
+## 1. Connect the repo to the Worker
+
+1. Cloudflare dashboard -> **Workers & Pages** -> select **juco-board**.
+2. **Settings** tab -> **Builds** (may also appear as "Build" or under a
+   "Deployments" area depending on when you're reading this -- the button
+   you want says **Connect**).
+3. Connect it to the same GitHub repo you already push `site\` to.
+4. When it asks for a **root directory**, set it to `site` -- that's the
+   folder containing `_worker.js`, `wrangler.toml`, and `index.html`.
+5. Leave the build command blank (there's nothing to compile -- `index.html`
+   and `_worker.js` are already finished files by the time they're pushed).
+   The deploy command defaults to `npx wrangler deploy`, which is correct --
+   leave it as-is.
+
+**Important:** the `name` in `site/wrangler.toml` (`"juco-board"`) must
+match this Worker's name in the dashboard exactly, or the build will fail.
+It already matches, so this should just work.
+
+Once connected, every `git push` triggers a build-and-deploy automatically
+-- same habit as before, one less moving part (no separate "deploy the
+Worker" click, ever).
+
+## 2. Turn on Cloudflare Access
+
+1. Workers & Pages -> **juco-board** -> **Access** tab.
+2. Click **Protect this Worker behind Access**.
+3. Choose who can sign in -- for the first test, your own account email and
+   `kwagner7@socal.rr.com`. This automatically covers the Worker's
+   `workers.dev` URL (and any custom domain you add later) -- nothing else
+   to configure.
+
+That's it for Access. No team domain, no AUD tag, no environment variables
+to set anywhere -- the Worker reads the signed-in visitor's identity
+straight from Cloudflare at runtime.
+
+## 3. Push
+
+    cd site
+    git add .
+    git commit -m "cloudflare worker + d1 + access"
+    git push
+
+Cloudflare picks up the push, builds, and deploys automatically. Give it a
+minute, then open the Worker's `workers.dev` URL (visible on the Worker's
+**Overview** tab) in a private/incognito window.
+
+## 4. Test it
+
+You should hit an Access login screen first (enter an allowlisted email,
+get a one-time code, you're in), then land on the board. The "You" box near
+the top should already show your email, greyed out -- that's Access's
+identity, not something you type. Leave a note on any player, hit Save,
+and check the `reviews` table in Cloudflare's D1 dashboard query console
+(`select * from reviews;`) to confirm it landed. Try "+ Add player" too.
+
+If sign-in works but the page or a save fails with "not signed in" or
+similar, double check step 1's root directory is exactly `site` (a wrong
+root directory means `_worker.js` isn't found at all, and you'd just get a
+plain static page with a broken Save button).
+
+## Updating who can save later
+
+Workers & Pages -> juco-board -> Access tab -> edit the policy's email
+list. No redeploy needed, takes effect on the next sign-in.
+
+## Updating the board's stats later
+
+Exactly what you already do: `board.bat` (or `weekly.bat`), then
+`build_site.bat`, then commit and push `site\`. Cloudflare picks up the
+push and redeploys automatically -- nothing else to run.
+
+## A domain later, if you ever want one
+
+Workers & Pages -> juco-board -> **Domains** tab -> add a domain you own
+(or buy one through Cloudflare right there). Cloudflare Access protection
+you set up in step 2 automatically extends to cover any domain you add --
+nothing to redo.
+
+## A second board sharing this database later
+
+If a future board's Worker wants to reuse the same `juco-board` D1 database
+instead of its own, add the same `[[d1_databases]]` block to that Worker's
+`wrangler.toml` and give its `_worker.js`/`build_site.py` a different
+`BOARD_ID` value so its rows never mix with this board's. Each board still
+gets its own Worker, its own Access setup, and its own URL -- only the
+database is shared.
+
+---
+
+*Below this line: two earlier, now-superseded plans, kept only for
+history.*
+
+## SUPERSEDED -- earlier "Cloudflare Pages" plan
+
+This plan assumed Cloudflare Pages was still the right product to use.
+Cloudflare has since (as of this writing) steered new projects toward
+Workers with built-in static-asset support instead, and Pages-specific
+project creation became harder to find in the dashboard as a result --
+which is exactly what caused the confusion that led to this rewrite. The
+`_worker.js` design (one script serving both the page and the API) carried
+over into the real setup above; the "create a Pages project" and "create a
+separate Access application" steps did not -- both got simpler.
+
+# Deploying the shared board (GitHub Pages + Cloudflare Worker) -- OLDEST
 
 This is the one-time setup. After this, running `board.bat` (to refresh
 stats) or `python build_site.py` (to rebuild the site) followed by a
