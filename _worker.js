@@ -149,6 +149,17 @@ async function handlePlayersDelete(request, env, ctx, url) {
   return json({ ok: true });
 }
 
+async function handleRosterGet(ctx) {
+  if (!(await identify(ctx))) return json({ error: "not_authorized" }, 403);
+  var match = /<script type="application\/json" id="d-board">([\s\S]*?)<\/script>/.exec(PAGE_HTML);
+  if (!match) return json({ error: "roster_not_found" }, 500);
+  try {
+    return json(JSON.parse(match[1]));
+  } catch (e) {
+    return json({ error: "roster_parse_failed" }, 500);
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     var url = new URL(request.url);
@@ -158,6 +169,7 @@ export default {
     if (url.pathname === "/api/players" && request.method === "GET") return handlePlayersGet(env, url);
     if (url.pathname === "/api/players" && request.method === "POST") return handlePlayersPost(request, env, ctx, url);
     if (url.pathname === "/api/players" && request.method === "DELETE") return handlePlayersDelete(request, env, ctx, url);
+    if (url.pathname === "/api/roster" && request.method === "GET") return handleRosterGet(ctx);
     // Everything else is the board page itself. Belt-and-suspenders check:
     // the dashboard-level "Protect this Worker" toggle should already have
     // blocked an unauthenticated request before it got here, but this
